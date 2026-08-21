@@ -1,0 +1,53 @@
+{
+  "name": "@vpnvpn/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:vite": "APP_CHANNEL=devel VITE_APP_CHANNEL=devel vite --port 5173 --strictPort",
+    "dev:tauri": "APP_CHANNEL=devel VITE_APP_CHANNEL=devel tauri dev",
+    "dev": "concurrently --kill-others --names \"vite,tauri\" --prefix-colors \"cyan,magenta\" \"bun run dev:vite\" \"bun run dev:tauri\"",
+    "dev:daemon": "cd daemon && cargo run -- --dev --log-level debug",
+    "dev:daemon:watch": "cd daemon && cargo watch -c -w src -x 'run -- --dev --log-level debug'",
+    "dev:full": "echo '⚠️  Run daemon in separate terminal: sudo bun run dev:daemon:watch' && bun run dev",
+    "build:web": "vite build",
+    "build:daemon": "bash src-tauri/scripts/prepare-daemon.sh",
+    "build:daemon:debug": "cd daemon && cargo build",
+    "build:tauri": "bun run build:daemon && tauri build",
+    "build": "bun run build:web && bun run build:tauri",
+    "build:release": "bun run build:web && bun run build:daemon && tauri build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "lint": "biome lint . && cd src-tauri && cargo fmt --check && cd ../daemon && cargo fmt --check",
+    "format": "biome format --write . && cd src-tauri && cargo fmt && cd ../daemon && cargo fmt"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.12",
+    "@tauri-apps/api": "^2.9.1",
+    "@tauri-apps/plugin-deep-link": "^2.4.5",
+    "@tauri-apps/plugin-process": "^2.3.0",
+    "@tauri-apps/plugin-shell": "^2.3.3",
+    "@tauri-apps/plugin-updater": "^2.9.0",
+    "@trpc/client": "^11.7.2",
+    "@trpc/react-query": "^11.7.2",
+    "lucide-react": "^0.555.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-simple-maps": "^3.0.0",
+    "superjson": "^2.2.6",
+    "tailwindcss": "^4.1.17"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.17",
+    "@tauri-apps/cli": "^2.9.6",
+    "@types/react": "^18.3.27",
+    "@types/react-dom": "^18.3.7",
+    "@types/react-simple-maps": "^3.0.6",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.2.1",
+    "jsdom": "^27.3.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.2",
+    "vitest": "^4.1.0"
+  }
+}

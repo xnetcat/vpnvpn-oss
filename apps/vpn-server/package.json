@@ -1,0 +1,13 @@
+{
+  "name": "@vpnvpn/vpn-server",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "cargo run --bin vpn-server",
+    "build": "cargo build --release",
+    "test": "cargo test",
+    "lint": "cargo fmt --check && cargo clippy",
+    "format": "cargo fmt",
+    "docker:build": "docker build -t vpnvpn/vpn-server -f Dockerfile ."
+  }
+}
