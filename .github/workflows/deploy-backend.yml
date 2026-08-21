@@ -1,0 +1,57 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - "apps/vpn-server/**"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        required: true
+        default: "staging"
+        type: choice
+        options:
+          - staging
+          - production
+
+jobs:
+  build-vpn-server:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    env:
+      INPUT_ENVIRONMENT: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set environment
+        run: |
+          if [ -n "$INPUT_ENVIRONMENT" ]; then
+            echo "DEPLOY_ENV=$INPUT_ENVIRONMENT" >> $GITHUB_ENV
+          elif [ "$GITHUB_REF" == "refs/heads/main" ]; then
+            echo "DEPLOY_ENV=production" >> $GITHUB_ENV
+          else
+            echo "DEPLOY_ENV=staging" >> $GITHUB_ENV
+          fi
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push VPN server image
+        working-directory: apps/vpn-server
+        env:
+          GH_REPO_OWNER: ${{ github.repository_owner }}
+          GH_SHA: ${{ github.sha }}
+        run: |
+          IMAGE="ghcr.io/${GH_REPO_OWNER}/vpnvpn/vpn-server"
+          SHORT_SHA="${GH_SHA::7}"
+          TAG="sha-${SHORT_SHA}"
+          docker build -t "${IMAGE}:${TAG}" -t "${IMAGE}:${DEPLOY_ENV}-latest" .
+          docker push "${IMAGE}:${TAG}"
+          docker push "${IMAGE}:${DEPLOY_ENV}-latest"
