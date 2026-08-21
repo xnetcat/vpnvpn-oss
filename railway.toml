@@ -1,0 +1,16 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "services/control-plane/Dockerfile"
+watchPatterns = ["services/control-plane/**", "packages/db/**"]
+
+[deploy]
+healthcheckPath = "/health"
+restartPolicyType = "ON_FAILURE"
+# Run DB migrations exactly once per release, before the new version starts —
+# NOT in the app boot path (leave PRISMA_MIGRATE_DEPLOY_ON_BOOT unset).
+preDeployCommand = "npx prisma migrate deploy --schema ./prisma/schema.prisma"
+# The control plane is currently stateful: the default @fastify/rate-limit store
+# is in-memory, so counters are per-process. Keep a single replica until a
+# shared store is configured (set RATE_LIMIT_REDIS_URL + install ioredis), then
+# this can be raised safely.
+numReplicas = 1

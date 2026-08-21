@@ -1,0 +1,42 @@
+{
+  "name": "vpnvpn-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "bun@1.1.38",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:stack:build": "cd local && docker compose build web-app control-plane vpn-node",
+    "dev:stack:up": "cd local && docker compose up -d postgres control-plane web-app vpn-node",
+    "dev:stack:down": "cd local && docker compose down",
+    "dev:stack:watch": "cd local && (docker compose watch || echo '[dev:stack] docker compose watch not available')",
+    "dev:desktop": "cd apps/desktop && dotenv -e ../../.env -- bun run dev",
+    "dev:stripe": "sh -c 'if command -v stripe >/dev/null 2>&1; then echo \"Starting Stripe listener (loading .env)...\"; set -a; [ -f .env ] && . .env; set +a; if [ -n \"$STRIPE_SECRET_KEY\" ]; then echo \"Using STRIPE_SECRET_KEY from .env for Stripe CLI\"; stripe listen --api-key \"$STRIPE_SECRET_KEY\" --forward-to http://localhost:3000/api/webhooks/stripe; else echo \"[dev] STRIPE_SECRET_KEY not set in .env; starting stripe listen without explicit --api-key\"; stripe listen --forward-to http://localhost:3000/api/webhooks/stripe; fi; else echo \"[dev] Stripe CLI not installed; skipping stripe listen\"; fi'",
+    "dev:studio": "sh -c 'echo \"Waiting for postgres on localhost:5432...\"; until nc -z localhost 5432 2>/dev/null; do sleep 2; done; echo \"postgres is up; starting Prisma Studio...\"; cd packages/db && DATABASE_URL=postgresql://postgres:password@localhost:5432/vpnvpn bunx prisma studio'",
+    "dev": "dotenv -e .env -- bash scripts/dev.sh",
+    "dev:web": "dotenv -e .env -- bash scripts/dev-web.sh",
+    "test:local": "dotenv -e .env -- bash ./local/test-flow.sh",
+    "test:flow": "bash e2e/run-flow.sh",
+    "test:local:e2e": "dotenv -e .env -- bun test local/control-plane-vpn.jest.test.js",
+    "db:generate": "cd packages/db && dotenv -e ../../.env -- bun run build",
+    "postinstall": "bun run db:generate",
+    "dev:turbo": "dotenv -e .env -- turbo run dev --parallel",
+    "build": "dotenv -e .env -- turbo run build",
+    "lint": "dotenv -e .env -- turbo run lint",
+    "test": "dotenv -e .env -- turbo run test",
+    "format": "dotenv -e .env -- turbo run format",
+    "docker:build": "dotenv -e .env -- turbo run docker:build",
+    "test:control-plane:jest": "dotenv -e .env -- npx jest local/control-plane-vpn.jest.test.js --runInBand"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "concurrently": "^9.2.1",
+    "dotenv-cli": "^11.0.0",
+    "jest": "^29.7.0",
+    "turbo": "^2.6.3",
+    "typescript": "^5.9.3"
+  }
+}

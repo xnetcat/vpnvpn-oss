@@ -1,0 +1,48 @@
+# Node
+node_modules/
+.next/
+pnpm-lock.yaml
+yarn.lock
+package-lock.json
+
+# turbo
+.turbo/
+
+# Rust
+target/
+
+
+# Tauri sidecar binaries (generated during build)
+apps/desktop/src-tauri/binaries/
+
+# Pulumi
+infra/pulumi/bin/
+.pulumi/
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# turbo
+.turbo/
+
+# dist
+dist/
+*.tsbuildinfo
+.vercel
+.env*.local
+
+# any stray env dumps (e.g. vercel env pull outputs)
+*.env

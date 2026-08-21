@@ -1,0 +1,52 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "DATABASE_URL",
+    "DATABASE_URL_UNPOOLED",
+    "CONTROL_PLANE_API_URL",
+    "CONTROL_PLANE_API_KEY",
+    "CONTROL_PLANE_BOOTSTRAP_TOKEN",
+    "DESKTOP_BUCKET_URL",
+    "ENVIRONMENT",
+    "NEXTAUTH_URL",
+    "NEXTAUTH_SECRET",
+    "EMAIL_FROM",
+    "RESEND_API_KEY",
+    "EMAIL_SERVER",
+    "GITHUB_ID",
+    "GITHUB_SECRET",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+    "STRIPE_PRICE_ID_BASIC",
+    "STRIPE_PRICE_ID_PRO",
+    "STRIPE_PRICE_ID_ENTERPRISE",
+    "VITE_API_BASE_URL",
+    "VITE_APP_CHANNEL",
+    "APP_CHANNEL"
+  ],
+  "tasks": {
+    "docker:build": {
+      "dependsOn": ["build"],
+      "outputs": []
+    },
+    "lint": {
+      "outputs": []
+    },
+    "format": {
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "build/**"]
+    },
+    "dev": {
+      "cache": false
+    }
+  }
+}
