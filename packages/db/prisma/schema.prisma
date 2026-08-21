@@ -1,0 +1,233 @@
+// Prisma schema for Auth.js (NextAuth) + Stripe subscriptions + control plane
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x", "debian-openssl-3.0.x", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String    @id @default(cuid())
+  name             String?
+  email            String?   @unique
+  emailVerified    DateTime?
+  image            String?
+  stripeCustomerId String?
+  role             String    @default("user")
+
+  accounts                Account[]
+  sessions                Session[]
+  subscriptions           Subscription[]
+  notificationPreferences NotificationPreferences?
+  devices                 Device[]
+  vpnPeers                VpnPeer[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  id                       String  @id @default(cuid())
+  userId                   String
+  type                     String
+  provider                 String
+  providerAccountId        String
+  refresh_token            String?
+  access_token             String?
+  expires_at               Int?
+  token_type               String?
+  scope                    String?
+  id_token                 String?
+  session_state            String?
+  oauth_token_secret       String?
+  oauth_token              String?
+  refresh_token_expires_in Int?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Subscription {
+  id                   String    @id @default(cuid())
+  userId               String
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeSubscriptionId String    @unique
+  priceId              String
+  status               String
+  tier                 String    @default("basic")
+  currentPeriodEnd     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model StripeEvent {
+  id        String   @id
+  type      String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model NotificationPreferences {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  marketing     Boolean @default(true)
+  transactional Boolean @default(true)
+  security      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Device {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name            String
+  publicKey       String    @unique
+  machineId       String?
+  serverId        String?
+  assignedIp      String?
+  status          String    @default("pending")
+  lastConnectedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([serverId, assignedIp])
+  @@index([userId])
+  @@index([status])
+  @@index([userId, machineId])
+}
+
+model VpnServer {
+  id                  String   @id
+  publicIp            String?
+  publicKey           String?
+  metadata            Json?
+  wgEndpoint          String?
+  wgPort              Int?
+  ovpnEndpoint        String?
+  ovpnPort            Int?
+  ovpnCaBundle        String?
+  ovpnPeerFingerprint String?
+  ikev2Remote         String?
+  status              String
+  lastSeen            DateTime
+
+  peers   VpnPeer[]
+  metrics VpnMetric[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([lastSeen])
+}
+
+model VpnPeer {
+  publicKey String @id
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  serverId String?
+  server   VpnServer? @relation(fields: [serverId], references: [id], onDelete: SetNull)
+
+  allowedIps String[]
+  country    String?
+  region     String?
+  active     Boolean   @default(true)
+  username   String?   @unique
+  password   String?
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  @@index([userId])
+  @@index([serverId, active])
+}
+
+model VpnToken {
+  id          String   @id @default(cuid())
+  tokenHash   String   @unique
+  tokenPrefix String
+  label       String
+  createdAt   DateTime @default(now())
+  usageCount  Int      @default(0)
+  active      Boolean  @default(true)
+}
+
+model VpnMetric {
+  id        String    @id @default(cuid())
+  serverId  String
+  server    VpnServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  timestamp DateTime  @default(now())
+
+  cpu          Float?
+  memory       Float?
+  activePeers  Int?
+  egressBytes  Float?
+  ingressBytes Float?
+  region       String?
+
+  @@index([serverId, timestamp])
+  @@index([timestamp])
+}
+
+model PeerMetric {
+  id        String   @id @default(cuid())
+  serverId  String
+  publicKey String?
+  username  String?
+  rxBytes   BigInt
+  txBytes   BigInt
+  timestamp DateTime @default(now())
+
+  @@index([serverId, timestamp])
+  @@index([timestamp])
+  @@index([publicKey, timestamp])
+  @@index([username, timestamp])
+}
+
+model DesktopLoginCode {
+  id         String    @id @default(cuid())
+  email      String
+  code       String
+  url        String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int       @default(0)
+  createdAt  DateTime  @default(now())
+
+  @@index([email, code])
+  @@index([expiresAt])
+}
