@@ -39,3 +39,5 @@ appropriate `DATABASE_URL`:
 ```bash
 npx prisma migrate deploy --schema prisma/schema.prisma
 ```
+
+

@@ -234,7 +234,7 @@ POST /peers
 | `allowedIps` | string[] | Yes      | Allowed IP ranges for client      |
 | `serverId`   | string   | No       | Preferred server ID               |
 | `country`    | string   | No       | Country code                      |
-| `region`    | string   | No       | AWS region                        |
+| `region`     | string   | No       | AWS region                        |
 | `username`   | string   | No       | OpenVPN username (auto-generated) |
 | `password`   | string   | No       | OpenVPN password (auto-generated) |
 

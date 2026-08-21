@@ -3,7 +3,7 @@
 This document describes vpnVPN's security model and the operational actions
 required to keep it secure.
 
-## Secret rotation (required action)
+## ⚠️ Secret rotation (required action)
 
 Application secrets live in `.env` / `.env.local` for local development. These
 files are **git-ignored and were never committed**, but they are real
@@ -67,4 +67,4 @@ shares counters across replicas.
 ## Reporting
 
 Report suspected vulnerabilities privately to the maintainer rather than opening
-  a public issue.
+a public issue.

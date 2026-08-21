@@ -1,6 +1,6 @@
 # vpnVPN Desktop (Tauri)
 
-Native multi-platform desktop client for vpnVPN. Uses a Tauri GUI with a
+Native multi‑platform desktop client for vpnVPN. Uses a Tauri GUI with a
 privileged Rust daemon for VPN management. Supports WireGuard, OpenVPN, and IKEv2.
 
 ## Architecture

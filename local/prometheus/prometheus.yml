@@ -1,0 +1,22 @@
+# Prometheus scrape configuration for the local vpnVPN stack.
+#
+# The vpn-node runs with `network_mode: host` and exposes its admin/metrics
+# server on host port 9090 (ADMIN_PORT), so from this bridge-networked container
+# we reach it via the host gateway. Prometheus' own UI is published on host
+# port 9091 to avoid clashing with the node's 9090.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: vpn-node
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:9090"]
+        labels:
+          env: local
+          node: vpn-node-1
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

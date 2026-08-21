@@ -1,0 +1,9 @@
+# Railway service config for the Prometheus monitoring service.
+# Set the service's Root Directory to `infra/prometheus` in Railway so this file
+# and the Dockerfile are picked up.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+restartPolicyType = "ON_FAILURE"

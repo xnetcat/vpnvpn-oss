@@ -1,0 +1,5 @@
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y     wireguard-tools     openvpn     strongswan     strongswan-swanctl     curl     iproute2     iputils-ping     jq     openssl     && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /tests

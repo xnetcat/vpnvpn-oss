@@ -1,0 +1,85 @@
+{
+  "productName": "vpnVPN Desktop",
+  "version": "0.0.0",
+  "identifier": "com.vpnvpn.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeBundleCommand": "bash src-tauri/scripts/prepare-daemon.sh"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "vpnVPN Desktop",
+        "width": 900,
+        "height": 640,
+        "resizable": true,
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "trayIcon": {
+      "iconPath": "icons/tray-icon.png",
+      "iconAsTemplate": true
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": false,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "externalBin": ["binaries/vpnvpn-daemon"],
+    "resources": [],
+    "macOS": {
+      "entitlements": null,
+      "exceptionDomain": null,
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": null,
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": false
+      },
+      "deb": {
+        "depends": []
+      },
+      "rpm": {
+        "depends": []
+      }
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["vpnvpn"]
+      }
+    },
+    "shell": {
+      "open": true
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/xnetcat/vpnVPN/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDBCRTUyQTZCRjM3MjdGQTEKUldTaGYzTHpheXJsQ3pUVGUyUlJWUFlGcGI5UFpKQU1ZdXRzamRLb1RoR29NUitvTUluaVB6VEQK"
+    }
+  }
+}

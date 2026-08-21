@@ -1,0 +1,298 @@
+name: Build Desktop App
+
+on:
+  push:
+    branches: ["main", "staging"]
+    paths:
+      - "apps/desktop/**"
+      - ".github/workflows/desktop-build.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Build environment"
+        required: true
+        default: "staging"
+        type: choice
+        options:
+          - staging
+          - production
+
+jobs:
+  # NOTE: The Windows compile check (cargo check on shared/daemon/src-tauri for
+  # x86_64-pc-windows-msvc) that used to live here moved to desktop-ci.yml,
+  # which additionally runs `cargo clippy -D warnings` + `cargo test` on a
+  # Windows runner and — unlike this workflow — also triggers on pull requests.
+  # Pushes to main/staging touching apps/desktop/** still get the strongest
+  # Windows verification via the full MSI/NSIS bundle in the `build` matrix
+  # below.
+
+  # Lint + test the Rust crates and the React app on a Unix host (host targets).
+  rust-and-web-checks:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            apps/desktop/daemon
+            apps/desktop/shared
+          shared-key: desktop-rust-checks
+          cache-on-failure: true
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: cargo fmt --check (shared + daemon)
+        run: |
+          cargo fmt --manifest-path apps/desktop/shared/Cargo.toml --check
+          cargo fmt --manifest-path apps/desktop/daemon/Cargo.toml --check
+
+      - name: cargo clippy (shared + daemon)
+        run: |
+          cargo clippy --manifest-path apps/desktop/shared/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path apps/desktop/daemon/Cargo.toml --all-targets -- -D warnings
+
+      - name: cargo test (shared + daemon)
+        run: |
+          cargo test --manifest-path apps/desktop/shared/Cargo.toml
+          cargo test --manifest-path apps/desktop/daemon/Cargo.toml
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.1.38"
+
+      - name: Install dependencies
+        working-directory: apps/desktop
+        run: bun install
+
+      - name: Lint React app
+        working-directory: apps/desktop
+        run: bun run lint
+
+      - name: Test React app
+        working-directory: apps/desktop
+        run: bun run test
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            artifact_suffix: macos-arm64
+          # macos-13 (the last Intel runner image) was retired by GitHub; build
+          # the Intel binary on Apple Silicon via cross-compilation instead.
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            artifact_suffix: macos-x64
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            artifact_suffix: linux-x64
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_suffix: windows-x64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set environment
+        id: env
+        shell: bash
+        env:
+          INPUT_ENVIRONMENT: ${{ github.event.inputs.environment }}
+          GH_REF: ${{ github.ref }}
+        run: |
+          if [ -n "$INPUT_ENVIRONMENT" ]; then
+            echo "environment=$INPUT_ENVIRONMENT" >> "$GITHUB_OUTPUT"
+          elif [ "$GH_REF" == "refs/heads/main" ]; then
+            echo "environment=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set environment URLs
+        id: urls
+        shell: bash
+        env:
+          BUILD_ENV: ${{ steps.env.outputs.environment }}
+        run: |
+          if [ "$BUILD_ENV" == "production" ]; then
+            echo "web_url=https://vpnvpn.dev" >> "$GITHUB_OUTPUT"
+            echo "desktop_url=https://vpnvpn.dev/desktop?desktop=1" >> "$GITHUB_OUTPUT"
+            echo "app_channel=prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "web_url=https://staging.vpnvpn.dev" >> "$GITHUB_OUTPUT"
+            echo "desktop_url=https://staging.vpnvpn.dev/desktop?desktop=1" >> "$GITHUB_OUTPUT"
+            echo "app_channel=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.1.38"
+
+      - name: Cache Bun install cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: desktop-bun-cache-${{ runner.os }}-${{ hashFiles('apps/desktop/bun.lockb') }}
+
+      - name: Cache desktop node_modules
+        uses: actions/cache@v4
+        with:
+          path: apps/desktop/node_modules
+          key: desktop-node-modules-${{ runner.os }}-${{ hashFiles('apps/desktop/bun.lockb') }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          shared-key: desktop-${{ matrix.target }}
+          cache-on-failure: true
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install dependencies
+        working-directory: apps/desktop
+        run: bun install
+
+      - name: Build frontend
+        working-directory: apps/desktop
+        env:
+          VITE_VPNVPN_DESKTOP_URL: ${{ steps.urls.outputs.desktop_url }}
+          VITE_VPNVPN_API_URL: ${{ steps.urls.outputs.web_url }}
+          VITE_APP_CHANNEL: ${{ steps.urls.outputs.app_channel }}
+        run: bun run build:web
+
+      - name: Ensure macOS .icns icon
+        if: startsWith(matrix.platform, 'macos')
+        working-directory: apps/desktop/src-tauri/icons
+        run: |
+          mkdir -p app.iconset
+          cp 32x32.png app.iconset/icon_32x32.png
+          cp 128x128.png app.iconset/icon_128x128.png
+          cp 128x128@2x.png app.iconset/icon_256x256.png
+          iconutil -c icns app.iconset -o icon.icns
+
+      - name: Prepare daemon sidecar (Unix)
+        if: runner.os != 'Windows'
+        working-directory: apps/desktop/src-tauri
+        # VPNVPN_EXPECTED_TEAM_ID pins the macOS code-signing Team ID for daemon
+        # IPC client verification. When the secret is unset the script opts out
+        # of pinning (warns) so unsigned builds still succeed.
+        env:
+          VPNVPN_EXPECTED_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          VPNVPN_TARGET_TRIPLE: ${{ matrix.target }}
+        run: bash scripts/prepare-daemon.sh
+
+      - name: Prepare daemon sidecar (Windows)
+        if: runner.os == 'Windows'
+        working-directory: apps/desktop/src-tauri
+        run: pwsh -ExecutionPolicy Bypass -File scripts/prepare-daemon.ps1
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_KEY_PASSWORD }}
+          APP_CHANNEL: ${{ steps.urls.outputs.app_channel }}
+        with:
+          projectPath: apps/desktop
+          args: --target ${{ matrix.target }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.artifact_suffix }}
+          path: |
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.tar.gz
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.tar.gz.sig
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.nsis.zip
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.nsis.zip.sig
+          if-no-files-found: warn
+
+  upload-release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Set environment
+        id: env
+        env:
+          INPUT_ENVIRONMENT: ${{ github.event.inputs.environment }}
+          GH_REF: ${{ github.ref }}
+        run: |
+          if [ -n "$INPUT_ENVIRONMENT" ]; then
+            echo "environment=$INPUT_ENVIRONMENT" >> "$GITHUB_OUTPUT"
+          elif [ "$GH_REF" == "refs/heads/main" ]; then
+            echo "environment=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: desktop-${{ steps.env.outputs.environment }}-${{ github.sha }}
+          name: Desktop (${{ steps.env.outputs.environment }}) ${{ github.sha }}
+          draft: false
+          prerelease: ${{ steps.env.outputs.environment == 'staging' }}
+          files: |
+            artifacts/**/*.dmg
+            artifacts/**/*.AppImage
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+            artifacts/**/*.msi
+            artifacts/**/*.exe

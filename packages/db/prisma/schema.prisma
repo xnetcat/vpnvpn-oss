@@ -2,6 +2,7 @@
 
 generator client {
   provider      = "prisma-client-js"
+  // Include Linux ARM64 + OpenSSL 3.0.x engine for Docker runtime, alongside native.
   binaryTargets = ["native", "linux-arm64-openssl-3.0.x", "debian-openssl-3.0.x", "rhel-openssl-3.0.x"]
 }
 
@@ -88,11 +89,19 @@ model Subscription {
   @@index([userId])
 }
 
+// Processed Stripe webhook events (idempotency / replay dedup). The webhook
+// handler inserts the event ID before processing; a unique violation means the
+// event was already handled, so Stripe replays are acked without re-running
+// side effects (e.g. transactional emails). Rows are removed again when
+// processing fails retryably, so Stripe's retry is processed normally.
 model StripeEvent {
   id        String   @id
   type      String
   createdAt DateTime @default(now())
 
+  // Supports retention cleanup: old rows are pruned opportunistically by the
+  // webhook handler. Stripe stops retrying an event after ~3 days, so rows
+  // older than the retention window can never be legitimate replays.
   @@index([createdAt])
 }
 
@@ -116,10 +125,13 @@ model Device {
 
   name            String
   publicKey       String    @unique
-  machineId       String?
+  machineId       String? // Unique identifier for the physical device
   serverId        String?
+  // Tunnel IP allocated to this device from the VPN address pool. Unique per
+  // server so two devices on the same node can never collide (see
+  // apps/web/lib/networking.ts for the transactional allocator).
   assignedIp      String?
-  status          String    @default("pending")
+  status          String    @default("pending") // "pending" | "active"
   lastConnectedAt DateTime?
 
   createdAt DateTime @default(now())
@@ -130,6 +142,8 @@ model Device {
   @@index([status])
   @@index([userId, machineId])
 }
+
+// Control plane: VPN servers, peers, tokens, metrics
 
 model VpnServer {
   id                  String   @id
@@ -152,6 +166,7 @@ model VpnServer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Online-window filtering for /servers and /metrics/targets (http_sd).
   @@index([lastSeen])
 }
 
@@ -173,9 +188,14 @@ model VpnPeer {
   revokedAt  DateTime?
 
   @@index([userId])
+  // Hot path: nodes poll GET /server/peers filtering on (serverId, active).
   @@index([serverId, active])
 }
 
+// VPN node bearer tokens. The raw token is NEVER stored — only its SHA-256
+// hash (tokenHash). The raw value is shown to the operator exactly once at
+// creation. `tokenPrefix` is the first few characters, kept only for display
+// so admins can tell tokens apart in the UI.
 model VpnToken {
   id          String   @id @default(cuid())
   tokenHash   String   @unique
@@ -195,14 +215,25 @@ model VpnMetric {
   cpu          Float?
   memory       Float?
   activePeers  Int?
+  // Cumulative tunnel throughput counters (bytes) reported by the node, summed
+  // across all backends. Nullable so older rows and nodes that do not report
+  // them remain valid. Surfaced (aggregated) on the public transparency page.
   egressBytes  Float?
   ingressBytes Float?
   region       String?
 
   @@index([serverId, timestamp])
+  // Retention prune deletes rows older than a cutoff regardless of server.
   @@index([timestamp])
 }
 
+// Per-peer cumulative transfer samples pushed by nodes alongside VpnMetric.
+// Counters are cumulative-since-daemon-start RAW values: consumers compute
+// reset-aware deltas (if current < previous, the delta is the current value).
+// Identity is protocol-dependent: WireGuard peers report `publicKey`,
+// OpenVPN/IKEv2 sessions report `username` (the device id used as the EAP /
+// auth identity). Intentionally NO foreign key to VpnServer so ingestion never
+// races registration and per-user usage history survives server deletion.
 model PeerMetric {
   id        String   @id @default(cuid())
   serverId  String
@@ -212,12 +243,16 @@ model PeerMetric {
   txBytes   BigInt
   timestamp DateTime @default(now())
 
+  // Mirror VpnMetric's indexes (per-server reads + retention prune) plus the
+  // identity lookups used by the per-user usage dashboard.
   @@index([serverId, timestamp])
   @@index([timestamp])
   @@index([publicKey, timestamp])
   @@index([username, timestamp])
 }
 
+// Short-lived desktop login codes used to link the vpnVPN desktop app without
+// relying on OS-level deep link handling.
 model DesktopLoginCode {
   id         String    @id @default(cuid())
   email      String
@@ -225,6 +260,8 @@ model DesktopLoginCode {
   url        String
   expiresAt  DateTime
   consumedAt DateTime?
+  // Failed verification attempts against this code; the code is invalidated
+  // once this exceeds the lockout threshold (brute-force protection).
   attempts   Int       @default(0)
   createdAt  DateTime  @default(now())
 

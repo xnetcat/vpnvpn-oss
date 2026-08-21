@@ -1,0 +1,222 @@
+services:
+  # VPN Node (Rust Server)
+  # Uses host network mode to get host's public IP and network interface for proper NAT
+  # Connects to control-plane and metrics via localhost (exposed on host ports)
+  vpn-node:
+    build:
+      context: ../apps/vpn-server
+      dockerfile: Dockerfile
+    # Note: ENTRYPOINT is set in Dockerfile to ["/usr/local/bin/vpn-server", "run"]
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - "/dev/net/tun:/dev/net/tun"
+    # Use host network mode - gives VPN node host's network interface and IP
+    # This allows proper NAT and internet access for VPN clients
+    network_mode: host
+    env_file:
+      - ../.env
+    environment:
+      # Connect to services via localhost (they're exposed on host ports)
+      - API_URL=http://localhost:4000
+      - VPN_TOKEN=dummy-token
+      - SERVER_ID=vpn-node-1
+      - VPN_REGION=local
+      - VPN_COUNTRY=local
+      - METRICS_URL=http://localhost:4000/metrics/vpn
+      - LISTEN_UDP_PORT=51820
+      - ADMIN_PORT=9090
+      - RUST_LOG=info
+      - VPN_PROTOCOLS=wireguard,openvpn,ikev2
+      - VPN_WG_ENDPOINT=127.0.0.1
+      - VPN_OVPN_ENDPOINT=127.0.0.1
+      - VPN_IKEV2_REMOTE=127.0.0.1:500
+      # Static peer for docker test client
+      - STATIC_PEER_PUBLIC_KEY=${VPN_TEST_CLIENT_PUBLIC_KEY}
+      - STATIC_PEER_ALLOWED_IPS=10.8.0.2/32
+    # Ports not needed with host network mode (uses host's network directly)
+    develop:
+      watch:
+        - path: ../apps/vpn-server
+          action: rebuild
+        - path: ../.env
+          action: rebuild
+
+  # Postgres Database
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: vpnvpn
+    ports:
+      - "5432:5432"
+    networks:
+      - vpn-net
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  # Control Plane Service
+  control-plane:
+    build:
+      context: ..
+      dockerfile: services/control-plane/Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      - PORT=4000
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/vpnvpn
+      - JWT_SECRET=dev-secret
+      - CONTROL_PLANE_API_KEY=${CONTROL_PLANE_API_KEY:-dev-control-plane-key}
+      - PRISMA_MIGRATE_DEPLOY_ON_BOOT=1
+      - CONTROL_PLANE_BOOTSTRAP_TOKEN=${VPN_TOKEN:-dummy-token}
+    depends_on:
+      - postgres
+    # Expose on host port so VPN node (using host network) can access it
+    ports:
+      - "4000:4000"
+    networks:
+      - vpn-net
+    develop:
+      watch:
+        - path: ../services/control-plane
+          action: rebuild
+        - path: ../packages
+          action: rebuild
+        - path: ../.env
+          action: rebuild
+
+  # Web App
+  web-app:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/vpnvpn
+      - NEXTAUTH_SECRET=supersecret
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXT_PUBLIC_API_URL=http://control-plane:4000
+      - CONTROL_PLANE_API_URL=http://control-plane:4000
+      - CONTROL_PLANE_API_KEY=${CONTROL_PLANE_API_KEY:-dev-control-plane-key}
+      - NEXT_PUBLIC_WG_ENDPOINT=localhost:51820
+      - NEXT_PUBLIC_WG_SERVER_PUBLIC_KEY=${WG_SERVER_PUBLIC_KEY:-server-public-key-here}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+    networks:
+      - vpn-net
+    develop:
+      watch:
+        - path: ../apps/web/app
+          action: rebuild
+        - path: ../apps/web/components
+          action: rebuild
+        - path: ../apps/web/lib
+          action: rebuild
+        - path: ../apps/web/package.json
+          action: rebuild
+        - path: ../packages
+          action: rebuild
+        - path: ../.env
+          action: rebuild
+
+  # Dockerized VPN test client that connects to vpn-node and verifies connectivity.
+  vpn-test-client:
+    build:
+      context: ../apps/vpn-server
+      dockerfile: Dockerfile
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      set -e
+      if [ -z "${VPN_TEST_CLIENT_PRIVATE_KEY}" ] || [ -z "${VPN_TEST_CLIENT_PUBLIC_KEY}" ]; then
+        echo 'VPN_TEST_CLIENT_PRIVATE_KEY and VPN_TEST_CLIENT_PUBLIC_KEY must be set in the environment for vpn-test-client'
+        exit 1
+      fi
+
+      echo '[vpn-test-client] Waiting for vpn-node admin endpoint...'
+      until curl -sf http://vpn-node:9090/health >/dev/null 2>&1; do
+        sleep 1
+      done
+
+      SERVER_PUB=$(curl -sf http://vpn-node:9090/pubkey | tr -d '"')
+      echo "[vpn-test-client] Server public key: $SERVER_PUB"
+
+      mkdir -p /etc/wireguard
+      chmod 700 /etc/wireguard
+
+      cat <<EOF >/etc/wireguard/wg0.conf
+      [Interface]
+      PrivateKey = ${VPN_TEST_CLIENT_PRIVATE_KEY}
+      Address = 10.8.0.2/32
+
+      [Peer]
+      PublicKey = $SERVER_PUB
+      AllowedIPs = 10.8.0.0/24
+      Endpoint = vpn-node:51820
+      PersistentKeepalive = 15
+      EOF
+
+      echo '[vpn-test-client] Bringing up WireGuard interface...'
+      wg-quick up wg0
+      echo '[vpn-test-client] Pinging server (10.8.0.1)...'
+      ping -c 3 10.8.0.1
+      echo '[vpn-test-client] VPN connectivity verified.'
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - "/dev/net/tun:/dev/net/tun"
+    depends_on:
+      - vpn-node
+    networks:
+      - vpn-net
+
+  # Prometheus — scrapes the vpn-node /metrics endpoint.
+  # UI on host port 9091 (the node already uses 9090 on the host network).
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9091:9090"
+    extra_hosts:
+      # Lets the bridge-networked Prometheus reach the host-networked vpn-node.
+      - "host.docker.internal:host-gateway"
+    networks:
+      - vpn-net
+
+  # Grafana — dashboards over Prometheus (datasource + dashboard auto-provisioned).
+  # Anonymous viewer access is enabled for convenience in the local stack only.
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - vpn-net
+
+networks:
+  vpn-net:
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  grafana-data:

@@ -23,3 +23,4 @@ EXPOSE 51820/udp 1194/udp 500/udp 4500/udp
 EXPOSE 8080
 ENV RUST_LOG=info
 ENTRYPOINT ["/usr/local/bin/vpn-server", "run"]
+

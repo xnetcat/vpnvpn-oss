@@ -1,0 +1,60 @@
+# =============================================================================
+# Production-flow overlay for the E2E harness.
+#
+# Used together with compose-e2e.yaml by run-flow.sh:
+#   docker compose -f compose-e2e.yaml -f compose-flow.yaml ...
+#
+# Adds the SaaS web app (apps/web) on the e2e network so the full production
+# pipeline can be exercised from the outside:
+#   user/session (DB seed) -> signed Stripe webhook -> tRPC device.register
+#   -> control-plane peer -> vpn-node sync -> WireGuard handshake.
+#
+# Also drops the host port publications from the base file (everything in the
+# flow test runs inside the compose network via `exec`), so the test never
+# conflicts with a local dev stack already bound to 4000/5432.
+#
+# All secrets below are throwaway test values; the Stripe price IDs map to the
+# web app's tier table (STRIPE_PRICE_ID_PRO -> tier "pro") and the webhook
+# secret signs the synthetic events sent by tests/flow/lib.sh.
+# =============================================================================
+services:
+  postgres:
+    ports: !reset []
+
+  control-plane:
+    ports: !reset []
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/vpnvpn
+      - CONTROL_PLANE_API_URL=http://control-plane:4000
+      - CONTROL_PLANE_API_KEY=e2e-test-api-key
+      - DESKTOP_BUCKET_URL=https://releases.e2e.invalid
+      - ENVIRONMENT=e2e
+      - NEXTAUTH_URL=http://web:3000
+      - NEXTAUTH_SECRET=e2e-flow-nextauth-secret
+      - EMAIL_SERVER=smtp://user:pass@mail.e2e.invalid:587
+      - EMAIL_FROM=noreply@e2e.invalid
+      - RESEND_API_KEY=re_e2e_dummy
+      - GITHUB_ID=e2e-github-id
+      - GITHUB_SECRET=e2e-github-secret
+      - GOOGLE_CLIENT_ID=e2e-google-id
+      - GOOGLE_CLIENT_SECRET=e2e-google-secret
+      - STRIPE_SECRET_KEY=sk_test_e2e_dummy
+      - STRIPE_WEBHOOK_SECRET=whsec_e2e_flow_test_secret
+      - STRIPE_PRICE_ID_BASIC=price_e2e_basic
+      - STRIPE_PRICE_ID_PRO=price_e2e_pro
+      - STRIPE_PRICE_ID_ENTERPRISE=price_e2e_enterprise
+    depends_on:
+      - postgres
+      - control-plane
+    networks:
+      - e2e-net
+
+  test-client:
+    depends_on:
+      - vpn-node
+      - web

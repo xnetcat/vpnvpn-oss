@@ -1,0 +1,88 @@
+name: Desktop CI (Windows)
+
+# The desktop daemon's Windows code paths (named-pipe IPC in
+# daemon/src/ipc/windows.rs, Authenticode client verification, rasdial IKEv2)
+# cannot be compiled or tested on the macOS dev host. This workflow runs the
+# Rust checks on a real Windows runner on every push/PR touching the desktop
+# app, so Windows-only regressions are caught before the release pipeline
+# (desktop-build.yml) attempts a full MSI/NSIS bundle.
+#
+# Full Tauri bundling is intentionally out of scope here — it is too slow for
+# per-push CI and is already exercised by desktop-build.yml's Windows matrix
+# leg. src-tauri only gets a `cargo check` (tauri-build validates that the
+# externalBin sidecar exists, so a zero-byte stub is created first; the
+# frontend dist is not required for a type check).
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - "apps/desktop/**"
+      - ".github/workflows/desktop-ci.yml"
+  pull_request:
+    branches: [main, staging]
+    paths:
+      - "apps/desktop/**"
+      - ".github/workflows/desktop-ci.yml"
+
+concurrency:
+  group: desktop-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-rust:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # No rust-toolchain.toml in apps/desktop/*; the repo convention
+      # (ci.yml, desktop-build.yml) is dtolnay/rust-toolchain@stable.
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            apps/desktop/shared
+            apps/desktop/daemon
+            apps/desktop/src-tauri
+          shared-key: desktop-windows-ci
+          cache-on-failure: true
+
+      # Lint first: clippy subsumes `cargo check` for these crates, so a
+      # Windows-only compile error surfaces here with -D warnings.
+      - name: cargo clippy (shared) [windows]
+        working-directory: apps/desktop/shared
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo clippy (daemon) [windows]
+        working-directory: apps/desktop/daemon
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test (shared) [windows]
+        working-directory: apps/desktop/shared
+        run: cargo test
+
+      - name: cargo test (daemon) [windows]
+        working-directory: apps/desktop/daemon
+        run: cargo test
+
+      # tauri-build validates that the externalBin sidecar exists; this job
+      # only type-checks (no bundling), so a zero-byte placeholder satisfies
+      # the check.
+      - name: Stub daemon sidecar (existence check only)
+        working-directory: apps/desktop/src-tauri
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path binaries | Out-Null
+          New-Item -ItemType File -Force -Path binaries/vpnvpn-daemon-x86_64-pc-windows-msvc.exe | Out-Null
+
+      - name: cargo check (src-tauri) [windows]
+        working-directory: apps/desktop/src-tauri
+        run: cargo check

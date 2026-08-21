@@ -1,0 +1,19 @@
+[package]
+name = "vpnvpn-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tauri = { version = "=2.9.3", features = ["tray-icon", "image-png"] }
+tauri-plugin-deep-link = "2.0.0"
+tauri-plugin-shell = "2.0.0"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+machine-uid = "0.5"
+fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
+
+[build-dependencies]
+tauri-build = { version = "2.0.0", features = [] }

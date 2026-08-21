@@ -1,0 +1,83 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: vpnvpn
+    # No host port mapping: the harness talks to services over the compose
+    # network only, and publishing 5432/4000 collides with a running dev stack.
+    networks:
+      - e2e-net
+    volumes:
+      - e2e-postgres-data:/var/lib/postgresql/data
+
+  control-plane:
+    build:
+      context: ..
+      dockerfile: services/control-plane/Dockerfile
+    environment:
+      - PORT=4000
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/vpnvpn
+      - CONTROL_PLANE_API_KEY=e2e-test-api-key
+      - CONTROL_PLANE_BOOTSTRAP_TOKEN=e2e-test-token
+      - PRISMA_MIGRATE_DEPLOY_ON_BOOT=1
+    depends_on:
+      - postgres
+    networks:
+      - e2e-net
+
+  vpn-node:
+    build:
+      context: ../apps/vpn-server
+      dockerfile: Dockerfile
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - "/dev/net/tun:/dev/net/tun"
+    # Enable IP forwarding for the node's net namespace so the in-container
+    # `sysctl -w` is not required (it is read-only without --privileged).
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv6.conf.all.forwarding=1
+    environment:
+      - API_URL=http://control-plane:4000
+      - VPN_TOKEN=e2e-test-token
+      - SERVER_ID=e2e-vpn-node
+      - VPN_REGION=e2e
+      - VPN_COUNTRY=test
+      - METRICS_URL=http://control-plane:4000/metrics/vpn
+      - LISTEN_UDP_PORT=51820
+      - ADMIN_PORT=8080
+      - RUST_LOG=info
+      - VPN_PROTOCOLS=wireguard,openvpn,ikev2
+      - VPN_WG_ENDPOINT=vpn-node
+      - VPN_OVPN_ENDPOINT=vpn-node
+      - VPN_IKEV2_REMOTE=vpn-node:500
+    depends_on:
+      - control-plane
+    networks:
+      - e2e-net
+
+  test-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-client
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - "/dev/net/tun:/dev/net/tun"
+    depends_on:
+      - vpn-node
+    networks:
+      - e2e-net
+    volumes:
+      - ./tests:/tests
+    entrypoint: ["sleep", "infinity"]
+
+networks:
+  e2e-net:
+
+volumes:
+  e2e-postgres-data:

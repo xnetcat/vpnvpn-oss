@@ -1,0 +1,70 @@
+[package]
+name = "vpnvpn-daemon"
+version = "0.1.0"
+edition = "2021"
+description = "Privileged VPN daemon for vpnVPN"
+
+[[bin]]
+name = "vpnvpn-daemon"
+path = "src/main.rs"
+
+[dependencies]
+# Shared types
+vpnvpn-shared = { path = "../shared" }
+
+# CLI argument parsing
+clap = { version = "4.5", features = ["derive"] }
+
+# Async runtime
+tokio = { version = "1.44", features = ["full", "signal"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Random
+rand = "0.8"
+
+# Crypto for nonce generation
+base64 = "0.22"
+
+# Platform-specific dependencies
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["user", "socket", "fs"] }
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Credentials",
+    "Win32_Security_WinTrust",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Services",
+    "Win32_NetworkManagement_WindowsFilteringPlatform",
+] }
+windows-service = "0.8"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+secret-service = { version = "4.0", optional = true }
+
+[features]
+default = []
+linux-secrets = ["secret-service"]
+
